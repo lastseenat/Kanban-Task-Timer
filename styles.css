@@ -1,0 +1,444 @@
+.kanban-plugin__item > .kanban-task-timer,
+.kanban-plugin__item-wrapper > .kanban-task-timer {
+  align-items: center;
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  gap: 0.45rem;
+  margin: 0.35rem 0.55rem 0.45rem;
+  padding-top: 0.4rem;
+  user-select: none;
+}
+
+.kanban-task-timer button {
+  align-items: center;
+  background: var(--interactive-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 0.4rem;
+  box-shadow: none;
+  color: var(--text-normal);
+  display: inline-flex;
+  font-size: 0.85rem;
+  height: 1.75rem;
+  justify-content: center;
+  min-width: 1.75rem;
+  padding: 0 0.4rem;
+}
+
+.kanban-task-timer button:hover {
+  background: var(--interactive-hover);
+}
+
+.kanban-task-timer__display {
+  color: var(--text-muted);
+  flex: 1;
+  font-family: var(--font-monospace);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.kanban-task-timer.is-running .kanban-task-timer__display {
+  color: var(--interactive-accent);
+  font-weight: 600;
+}
+
+.kanban-task-timer.is-overtime .kanban-task-timer__display {
+  color: var(--text-error);
+}
+
+.kanban-task-timer__sublist {
+  color: var(--text-muted) !important;
+  font-size: 1rem !important;
+}
+
+.kanban-task-timer__sublist.has-sublist {
+  background: color-mix(in srgb, var(--interactive-accent) 14%, var(--interactive-normal));
+  border-color: color-mix(in srgb, var(--interactive-accent) 35%, var(--background-modifier-border));
+  color: var(--interactive-accent) !important;
+}
+
+.kanban-task-timer__unlink {
+  color: var(--text-muted) !important;
+  font-size: 1rem !important;
+}
+
+.kanban-task-timer__unlink:hover {
+  color: var(--text-error) !important;
+}
+
+.kanban-task-timer__forced-start {
+  color: var(--text-muted) !important;
+  font-family: var(--font-monospace);
+  font-size: 0.82rem !important;
+  font-weight: 700;
+}
+
+.kanban-task-timer__forced-start.has-forced-start {
+  color: var(--interactive-accent) !important;
+}
+
+.kanban-task-timer-forced-start-compact {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: 0.78rem;
+  font-weight: 700;
+  min-width: 1.4rem;
+  padding: 0.1rem;
+}
+
+.kanban-task-timer-forced-start-compact.has-forced-start {
+  color: var(--interactive-accent);
+}
+
+.kanban-task-timer-forced-warning {
+  align-items: center;
+  color: var(--text-error);
+  display: inline-flex;
+  height: 1rem;
+  justify-content: center;
+  margin-inline: 0.1rem;
+  pointer-events: none;
+  transform: translateY(0.48rem);
+  width: 1rem;
+}
+
+.kanban-task-timer-forced-warning svg {
+  height: 1rem;
+  width: 1rem;
+}
+
+.kanban-task-timer__forced-start-input {
+  font-family: var(--font-monospace);
+  font-size: 0.72rem;
+  height: 1.75rem;
+  padding: 0 0.2rem;
+  width: 5.2rem;
+}
+
+.kanban-task-timer-forced-start-label {
+  background: transparent;
+  color: var(--text-muted);
+  display: block;
+  font-family: var(--font-monospace);
+  font-size: 0.74rem;
+  line-height: 1;
+  margin: 0.12rem 0 0;
+  padding: 0;
+}
+
+.kanban-task-timer-forced-start-label.is-late {
+  color: var(--text-error);
+}
+
+.kanban-task-timer.has-sublist {
+  border-top-color: color-mix(
+    in srgb,
+    var(--interactive-accent) 35%,
+    var(--background-modifier-border)
+  );
+}
+
+.kanban-plugin__lane-header-wrapper > .kanban-task-timer-lane-toggle {
+  flex: 0 0 auto;
+  margin-left: 0.15rem;
+}
+
+.kanban-task-timer-lane-toggle.is-hidden {
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.kanban-task-timer-lane-total {
+  align-items: center;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  bottom: 0.35rem;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 0.72rem;
+  justify-content: space-between;
+  isolation: isolate;
+  margin: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  position: sticky;
+  z-index: 100 !important;
+}
+
+.kanban-task-timer-lane-total strong {
+  color: var(--interactive-accent);
+  font-family: var(--font-monospace);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.kanban-task-timer-delete {
+  align-items: center;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0;
+  box-shadow: none !important;
+  color: var(--text-muted) !important;
+  display: inline-flex;
+  font-size: 1.1rem;
+  font-weight: 500;
+  height: 1.2rem;
+  justify-content: center;
+  line-height: 1;
+  min-width: 1.2rem;
+  padding: 0;
+  position: static;
+  margin-inline-start: 0.15rem;
+  z-index: 3;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  position: relative;
+  transform: translateY(0.48rem);
+}
+
+.kanban-plugin__item-postfix-button-wrapper:has(.kanban-task-timer-delete) {
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 20;
+}
+
+.kanban-task-timer-delete:hover {
+  background: transparent !important;
+  color: var(--text-error) !important;
+}
+
+.kanban-task-timer-estimate {
+  background: var(--background-primary) !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  border-radius: var(--radius-s);
+  box-shadow: var(--shadow-s);
+  color: var(--text-normal) !important;
+  font-size: 0.75rem;
+  left: 50%;
+  line-height: 1.2;
+  padding: 0.25rem 0.45rem;
+  pointer-events: none;
+  position: absolute;
+  top: -1.9rem;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  z-index: 50;
+}
+
+.kanban-plugin__item-wrapper:has(.kanban-task-timer-estimate) {
+  overflow: visible;
+  position: relative;
+}
+
+.kanban-plugin > .kanban-task-timer-summary {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: grid;
+  flex: 0 0 auto;
+  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0.65rem 1rem 0;
+  padding: 0.5rem;
+}
+
+.kanban-task-timer-summary [hidden] {
+  display: none !important;
+}
+
+.kanban-task-timer-summary__item {
+  align-items: center;
+  background: var(--background-primary);
+  border-radius: var(--radius-s);
+  display: flex;
+  gap: 0.45rem;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0.45rem 0.65rem;
+}
+
+.kanban-task-timer-summary__item--now {
+  grid-column: 1;
+  grid-row: 2 / span 2;
+}
+
+.kanban-task-timer-summary__item--todo {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.kanban-task-timer-summary__item--all {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.kanban-task-timer-summary__metric {
+  align-items: center;
+  display: flex;
+  gap: 0.45rem;
+}
+
+.kanban-task-timer-summary__forced-warning {
+  align-items: center;
+  color: var(--text-muted);
+  display: inline-flex;
+  gap: 0.25rem;
+  height: 1rem;
+  justify-content: center;
+  margin-left: 0.1rem;
+  width: auto;
+}
+
+.kanban-task-timer-summary__forced-warning.is-late {
+  color: var(--text-error);
+}
+
+.kanban-task-timer-summary__forced-warning-icon,
+.kanban-task-timer-summary__forced-warning svg {
+  align-items: center;
+  display: inline-flex;
+  height: 1rem;
+  width: 1rem;
+}
+
+.kanban-task-timer-summary__forced-warning-time {
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.kanban-task-timer-summary__forced-warning.is-late
+  .kanban-task-timer-summary__forced-warning-time {
+  color: var(--text-error);
+}
+
+.kanban-task-timer-summary__metric--bedtime {
+  border-left: 1px solid var(--background-modifier-border);
+  margin-left: auto;
+  padding-left: 0.65rem;
+}
+
+.kanban-task-timer-summary__metric--bedtime.is-safe
+  .kanban-task-timer-summary__value {
+  color: var(--text-success);
+}
+
+.kanban-task-timer-summary__metric--bedtime.is-warning
+  .kanban-task-timer-summary__value {
+  color: var(--color-orange);
+}
+
+.kanban-task-timer-summary__metric--bedtime.is-overdue
+  .kanban-task-timer-summary__value {
+  color: var(--text-error);
+}
+
+.kanban-task-timer-summary__item.is-after-bedtime
+  .kanban-task-timer-summary__value {
+  color: var(--text-error);
+}
+
+.kanban-task-timer-summary__item.is-before-bedtime
+  .kanban-task-timer-summary__value {
+  color: var(--text-success);
+}
+
+.kanban-task-timer-summary__sleep {
+  align-items: center;
+  border-bottom: 1px solid var(--background-modifier-border);
+  display: grid;
+  gap: 0.75rem;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  grid-template-columns: minmax(13rem, 1.5fr) minmax(10rem, 1fr);
+  padding: 0.05rem 0.15rem 0.35rem;
+}
+
+.kanban-task-timer-summary__sleep-field {
+  align-items: center;
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-start;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.kanban-task-timer-summary__sleep-field > span {
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  font-weight: 500;
+  line-height: 1.15;
+}
+
+.kanban-task-timer-summary__sleep input {
+  font-family: var(--font-monospace);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  height: 1.65rem;
+  min-width: 4.9rem;
+  padding: 0.1rem 0.3rem;
+  width: 4.9rem;
+}
+
+.kanban-task-timer-summary__label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.kanban-task-timer-summary__value {
+  color: var(--interactive-accent);
+  flex: 0 0 auto;
+  font-family: var(--font-monospace);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kanban-task-timer-summary__item--now .kanban-task-timer-summary__value {
+  color: var(--text-normal);
+}
+
+@media (max-width: 600px) {
+  .kanban-task-timer button {
+    height: 2.1rem;
+    min-width: 2.1rem;
+  }
+
+  .kanban-plugin > .kanban-task-timer-summary {
+    gap: 0.3rem;
+    margin: 0.5rem 0.65rem 0;
+    padding: 0.35rem;
+  }
+
+  .kanban-task-timer-summary__item {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.35rem;
+  }
+
+  .kanban-task-timer-summary__item--now {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .kanban-task-timer-summary__sleep {
+    gap: 0.35rem 0.6rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: auto;
+  }
+
+  .kanban-task-timer-summary__label {
+    font-size: 0.62rem;
+  }
+
+  .kanban-task-timer-summary__value {
+    font-size: 0.78rem;
+  }
+}
