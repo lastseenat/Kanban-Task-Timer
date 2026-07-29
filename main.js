@@ -12,6 +12,7 @@ const ESTIMATE_CLASS = "kanban-task-timer-estimate";
 const FORCED_START_COMPACT_CLASS = "kanban-task-timer-forced-start-compact";
 const FORCED_WARNING_CLASS = "kanban-task-timer-forced-warning";
 const FORCED_START_LABEL_CLASS = "kanban-task-timer-forced-start-label";
+const MOBILE_RESET_CLASS = "kanban-task-timer-mobile-reset";
 const SUBLIST_FOLDER = "Sous-listes";
 const SUBLIST_ALIAS = "Sous-tâches";
 const BOARD_ROOT_SELECTOR = ".kanban-plugin";
@@ -143,6 +144,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     document.querySelectorAll(`.${FORCED_START_COMPACT_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${FORCED_WARNING_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${FORCED_START_LABEL_CLASS}`).forEach((element) => element.remove());
+    document.querySelectorAll(`.${MOBILE_RESET_CLASS}`).forEach((element) => element.remove());
     document
       .querySelectorAll(`.${DELETE_CLASS}-container`)
       .forEach((element) => element.classList.remove(`${DELETE_CLASS}-container`));
@@ -746,7 +748,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     metric.classList.remove("is-safe", "is-warning", "is-overdue");
     metric.removeAttribute("title");
     todoItem?.classList.remove("is-after-bedtime", "is-before-bedtime");
-    allItem?.classList.remove("is-after-bedtime");
+    allItem?.classList.remove("is-after-bedtime", "is-before-bedtime");
 
     const plan = this.store.sleepPlans[boardPath] || {};
     const durationMinutes = this.parseSleepDuration(plan.duration);
@@ -774,6 +776,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     todoItem?.classList.toggle("is-after-bedtime", todoLate);
     todoItem?.classList.toggle("is-before-bedtime", !todoLate);
     allItem?.classList.toggle("is-after-bedtime", allLate);
+    allItem?.classList.toggle("is-before-bedtime", !allLate);
 
     if (todoLate && allLate) {
       metric.classList.add("is-overdue");
@@ -1253,6 +1256,14 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     controls.dataset.durationMs = String(durationMs);
     controls.dataset.taskTitle = taskTitle || stableText;
     controls.dataset.sublistPath = sublistPath || "";
+    controls.classList.toggle(
+      "is-mobile-layout",
+      Boolean(
+        this.app?.isMobile ||
+          document.body?.classList.contains("is-mobile") ||
+          document.documentElement?.classList.contains("is-mobile")
+      )
+    );
 
     const forcedStart = this.store.forcedStarts[key] || "";
     const forcedStartButton = controls.querySelector(`.${CONTROL_CLASS}__forced-start`);
@@ -1368,6 +1379,26 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     });
     input.addEventListener("blur", () => window.setTimeout(() => input.remove(), 150));
     input.focus();
+  }
+
+  ensureMobileResetButton(card, controls) {
+    let button = card.querySelector(`.${MOBILE_RESET_CLASS}`);
+    if (!button) {
+      button = document.createElement("button");
+      button.className = `${MOBILE_RESET_CLASS} clickable-icon`;
+      button.type = "button";
+      button.setAttribute("aria-label", "Réinitialiser le minuteur");
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void this.requestResetControlsTimer(controls);
+      });
+      const host =
+        card.querySelector(".kanban-plugin__item-postfix-button-wrapper") || card;
+      host.insertBefore(button, host.querySelector(`.${DELETE_CLASS}`) || null);
+    }
+    button.replaceChildren();
+    setIcon(button, "rotate-ccw");
   }
 
   setForcedStart(controls) {

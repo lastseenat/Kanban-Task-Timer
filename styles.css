@@ -9,6 +9,14 @@
   user-select: none;
 }
 
+.kanban-task-timer {
+  overflow: visible;
+}
+
+.kanban-plugin__item-wrapper:has(> .kanban-task-timer) {
+  overflow: visible;
+}
+
 .kanban-task-timer button {
   align-items: center;
   background: var(--interactive-normal);
@@ -66,6 +74,15 @@
   color: var(--text-error) !important;
 }
 
+.kanban-task-timer button[hidden] {
+  display: none !important;
+}
+
+/* Le reset reste dans la ligne du minuteur ; pas de doublon dans l'en-tete */
+.kanban-task-timer-mobile-reset {
+  display: none !important;
+}
+
 .kanban-task-timer__forced-start {
   color: var(--text-muted) !important;
   font-family: var(--font-monospace);
@@ -75,6 +92,13 @@
 
 .kanban-task-timer__forced-start.has-forced-start {
   color: var(--interactive-accent) !important;
+}
+
+.kanban-task-timer__reset {
+  flex: 0 0 1.75rem;
+  overflow: visible !important;
+  position: relative;
+  z-index: 2;
 }
 
 .kanban-task-timer-forced-start-compact {
@@ -132,6 +156,98 @@
   color: var(--text-error);
 }
 
+/* Le viewport CSS du miroir mobile peut rester large : la classe est donc
+   posée directement sur la ligne par le plugin. */
+.kanban-task-timer.is-mobile-layout {
+  box-sizing: border-box;
+  gap: 0.15rem;
+  margin-inline: 0.35rem;
+  max-width: calc(100% - 0.7rem);
+  overflow: hidden;
+  padding-inline: 0;
+  width: calc(100% - 0.7rem);
+}
+
+.kanban-task-timer.is-mobile-layout button {
+  flex: 0 0 1.4rem;
+  height: 1.45rem;
+  min-width: 1.4rem;
+  padding-inline: 0.1rem;
+}
+
+.kanban-task-timer.is-mobile-layout .kanban-task-timer__display {
+  flex: 1 1 4rem;
+  min-width: 3.8rem;
+}
+
+.kanban-task-timer.is-mobile-layout .kanban-task-timer__reset {
+  flex: 0 0 1.4rem;
+  position: static !important;
+}
+
+@media (max-width: 900px) {
+  /* Kanban applique overflow:hidden sur chaque carte : cela coupait
+     l'extremite droite de la ligne du minuteur sur mobile. */
+  .kanban-plugin__item:has(> .kanban-task-timer),
+  .kanban-plugin__item-wrapper:has(> .kanban-task-timer) {
+    overflow: visible !important;
+  }
+
+  .kanban-plugin__item-title-wrapper,
+  .kanban-plugin__item-postfix-button-wrapper {
+    min-width: 0;
+    overflow: visible !important;
+  }
+
+  .kanban-task-timer {
+    gap: 0.2rem;
+    flex-wrap: nowrap !important;
+    max-width: 100%;
+    overflow-x: scroll !important;
+    padding-bottom: 0.15rem;
+    padding-left: 1.7rem;
+    position: relative;
+    scrollbar-width: thin;
+    width: 100%;
+  }
+
+  .kanban-task-timer button {
+    flex: 0 0 1.5rem;
+    height: 1.55rem;
+    min-width: 1.5rem;
+    padding: 0 0.2rem;
+  }
+
+  .kanban-task-timer__display {
+    flex: 0 0 4.8rem;
+    font-size: 0.72rem;
+  }
+
+  .kanban-task-timer__reset {
+    flex: 0 0 1.5rem;
+    left: 0.1rem;
+    order: initial;
+    position: absolute !important;
+    top: 0.1rem;
+    z-index: 5;
+  }
+
+}
+
+.is-mobile .kanban-task-timer {
+  max-width: 100%;
+  overflow-x: auto !important;
+  flex-wrap: nowrap !important;
+}
+
+.is-mobile .kanban-task-timer__reset {
+  left: 0.1rem;
+  order: initial !important;
+  position: absolute !important;
+  top: 0.1rem;
+  z-index: 5;
+}
+
 .kanban-task-timer.has-sublist {
   border-top-color: color-mix(
     in srgb,
@@ -184,18 +300,19 @@
   display: inline-flex;
   font-size: 1.1rem;
   font-weight: 500;
-  height: 1.2rem;
+  height: 1.5rem;
   justify-content: center;
   line-height: 1;
-  min-width: 1.2rem;
+  min-width: 1.5rem;
   padding: 0;
-  position: static;
+  align-self: flex-start;
   margin-inline-start: 0.15rem;
+  margin-block: 0;
   z-index: 3;
   cursor: pointer !important;
   pointer-events: auto !important;
   position: relative;
-  transform: translateY(0.48rem);
+  transform: none;
 }
 
 .kanban-plugin__item-postfix-button-wrapper:has(.kanban-task-timer-delete) {
@@ -406,8 +523,14 @@
 
 @media (max-width: 600px) {
   .kanban-task-timer button {
-    height: 2.1rem;
-    min-width: 2.1rem;
+    height: 1.5rem;
+    min-width: 1.5rem;
+    padding-inline: 0.2rem;
+  }
+
+  .kanban-plugin__item:has(> .kanban-task-timer),
+  .kanban-plugin__item-wrapper:has(> .kanban-task-timer) {
+    overflow: visible !important;
   }
 
   .kanban-plugin > .kanban-task-timer-summary {
