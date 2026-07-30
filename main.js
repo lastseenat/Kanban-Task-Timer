@@ -472,6 +472,16 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     const boardPath = this.getBoardPath(sourceLane);
     if (!boardPath || this.getBoardPath(targetLane) !== boardPath) return;
 
+    // Use the rendered lane order instead of comparing heading text. Some
+    // existing boards contain legacy mojibake in accented headings, while
+    // Obsidian may render the same heading differently in the DOM.
+    const renderedLanes = Array.from(document.querySelectorAll(LANE_SELECTOR));
+    const sourceLaneIndex = renderedLanes.indexOf(sourceLane);
+    const targetLaneIndex = renderedLanes.indexOf(targetLane);
+    if (sourceLaneIndex < 0 || targetLaneIndex < 0 || sourceLaneIndex === targetLaneIndex) {
+      return;
+    }
+
     const sourceTitle = (
       sourceLane.querySelector(".kanban-plugin__lane-title-text")?.textContent || ""
     )
@@ -495,12 +505,8 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
         sections.push({ title: match[1].trim(), start: index });
       }
 
-      const source = sections.find(
-        (section) => section.title.toLocaleLowerCase() === sourceTitle.toLocaleLowerCase()
-      );
-      const target = sections.find(
-        (section) => section.title.toLocaleLowerCase() === targetTitle.toLocaleLowerCase()
-      );
+      const source = sections[sourceLaneIndex];
+      const target = sections[targetLaneIndex];
       if (!source || !target || source === target) return content;
 
       const sectionEnd = (section) => {
