@@ -481,8 +481,11 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
   }
 
   async moveAllCards(sourceLane, targetLane) {
-    const boardPath = this.getBoardPath(sourceLane);
-    if (!boardPath || this.getBoardPath(targetLane) !== boardPath) return;
+    const boardPath = this.app.workspace.getActiveFile()?.path || this.getBoardPath(sourceLane);
+    if (!boardPath || boardPath === "kanban") {
+      new Notice("Impossible d'identifier le fichier Kanban actif");
+      return;
+    }
 
     // Use the rendered lane order instead of comparing heading text. Some
     // existing boards contain legacy mojibake in accented headings, while
