@@ -29,6 +29,17 @@ const MINUTE = 60 * SECOND;
 const FILE_SETTLE_DELAY = 2000;
 const SUBLIST_MARKER_PATTERN = /^kanban-task-timer-sublist:\s*true\s*$/m;
 
+function canonicalLaneTitle(value) {
+  return String(value || "")
+    .toLocaleLowerCase()
+    .replace(/Ã©|Ã¨|Ãª|Ã«/g, "e")
+    .replace(/Ã€|Ã‚|Ã„/g, "a")
+    .replace(/[ÃÂ][€©ª]/g, "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
 module.exports = class KanbanTaskTimerPlugin extends Plugin {
   async onload() {
     this.removeControls();
@@ -507,8 +518,10 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
         sections.push({ title: match[1].trim(), start: index });
       }
 
-      const source = sections[sourceLaneIndex];
-      const target = sections[targetLaneIndex];
+      const sourceKey = canonicalLaneTitle(sourceTitle);
+      const targetKey = canonicalLaneTitle(targetTitle);
+      const source = sections.find((section) => canonicalLaneTitle(section.title) === sourceKey) || sections[sourceLaneIndex];
+      const target = sections.find((section) => canonicalLaneTitle(section.title) === targetKey) || sections[targetLaneIndex];
       if (!source || !target || source === target) return content;
 
       const sectionEnd = (section) => {
