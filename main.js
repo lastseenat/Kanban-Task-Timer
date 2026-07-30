@@ -511,8 +511,14 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     if (!sourceTitle || !targetTitle) return;
 
     const cardPattern = /^- (?:\[[ xX]\] )?/;
+    const boardFile = this.app.vault.getAbstractFileByPath(boardPath);
+    if (!boardFile || boardFile.extension !== "md") {
+      new Notice("Impossible d'ouvrir le fichier Kanban actif");
+      return;
+    }
+
     let movedCount = 0;
-    await this.processFile(boardPath, (content) => {
+    await this.processFile(boardFile, (content) => {
       const lines = content.split(/\r?\n/);
       const sections = [];
       for (let index = 0; index < lines.length; index += 1) {
