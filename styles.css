@@ -261,6 +261,26 @@
   margin-left: 0.15rem;
 }
 
+.kanban-task-timer-lane-move-all {
+  color: var(--text-muted) !important;
+  flex: 0 0 auto;
+  margin-left: 0.15rem;
+}
+
+.kanban-task-timer-lane-move-all:hover {
+  color: var(--interactive-accent) !important;
+}
+
+.kanban-task-timer-move-all-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.kanban-task-timer-move-all-choices button {
+  width: 100%;
+}
+
 .kanban-task-timer-lane-toggle.is-hidden {
   color: var(--text-muted);
   opacity: 0.75;

@@ -1,9 +1,10 @@
-const { Plugin, setIcon, normalizePath } = require("obsidian");
+const { Modal, Notice, Plugin, setIcon, normalizePath } = require("obsidian");
 
 const CONTROL_CLASS = "kanban-task-timer";
 const CARD_SELECTOR = ".kanban-plugin__item-wrapper";
 const LANE_SELECTOR = ".kanban-plugin__lane";
 const LANE_TOGGLE_CLASS = "kanban-task-timer-lane-toggle";
+const LANE_MOVE_ALL_CLASS = "kanban-task-timer-lane-move-all";
 const LANE_TOTAL_CLASS = "kanban-task-timer-lane-total";
 const LANE_HIDDEN_CLASS = "kanban-task-timer-lane-hidden";
 const SUMMARY_CLASS = "kanban-task-timer-summary";
@@ -149,6 +150,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
       .querySelectorAll(`.${DELETE_CLASS}-container`)
       .forEach((element) => element.classList.remove(`${DELETE_CLASS}-container`));
     document.querySelectorAll(`.${LANE_TOGGLE_CLASS}`).forEach((element) => element.remove());
+    document.querySelectorAll(`.${LANE_MOVE_ALL_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${LANE_TOTAL_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${SUMMARY_CLASS}`).forEach((element) => element.remove());
     document
@@ -167,6 +169,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
 
   renderAllCards() {
     this.renderLaneToggles();
+    this.renderLaneMoveButtons();
     this.renderLaneTotals();
 
     const cards = Array.from(document.querySelectorAll(CARD_SELECTOR));
@@ -398,6 +401,145 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
       button.setAttribute("aria-label", label);
       button.setAttribute("title", label);
     }
+  }
+
+  renderLaneMoveButtons() {
+    const lanes = Array.from(document.querySelectorAll(LANE_SELECTOR));
+    for (const lane of lanes) {
+      const header = lane.querySelector(":scope > .kanban-plugin__lane-header-wrapper");
+      if (!header) continue;
+
+      let button = header.querySelector(`.${LANE_MOVE_ALL_CLASS}`);
+      if (!button) {
+        button = document.createElement("button");
+        button.className = `${LANE_MOVE_ALL_CLASS} clickable-icon`;
+        button.type = "button";
+        button.addEventListener("pointerdown", (event) => event.stopPropagation());
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          this.showMoveAllMenu(lane, event);
+        });
+
+        const settings = header.querySelector(".kanban-plugin__lane-settings-button-wrapper");
+        if (settings?.parentElement) settings.parentElement.insertBefore(button, settings);
+        else header.appendChild(button);
+      }
+
+      setIcon(button, "arrow-right-left");
+      button.setAttribute("aria-label", "Déplacer toutes les cartes");
+      button.setAttribute("title", "Déplacer toutes les cartes");
+    }
+  }
+
+  showMoveAllMenu(sourceLane, event) {
+    const sourceTitle = (
+      sourceLane.querySelector(".kanban-plugin__lane-title-text")?.textContent || ""
+    )
+      .replace(/\s+/g, " ")
+      .trim();
+    const targets = Array.from(document.querySelectorAll(LANE_SELECTOR)).filter(
+      (lane) => lane !== sourceLane
+    );
+    if (!sourceTitle || targets.length === 0) return;
+
+    const modal = new Modal(this.app);
+    modal.titleEl.setText("Déplacer toutes les cartes");
+    modal.onOpen = () => {
+      const { contentEl } = modal;
+      contentEl.createEl("p", {
+        text: `Choisir la colonne de destination pour les cartes de « ${sourceTitle} »`,
+      });
+      const choices = contentEl.createDiv({ cls: "kanban-task-timer-move-all-choices" });
+      for (const targetLane of targets) {
+        const targetTitle = (
+          targetLane.querySelector(".kanban-plugin__lane-title-text")?.textContent || ""
+        )
+          .replace(/\s+/g, " ")
+          .trim();
+        if (!targetTitle) continue;
+        const choice = choices.createEl("button", { text: `Vers « ${targetTitle} »` });
+        choice.addEventListener("click", () => {
+          modal.close();
+          void this.moveAllCards(sourceLane, targetLane);
+        });
+      }
+    };
+    modal.open();
+  }
+
+  async moveAllCards(sourceLane, targetLane) {
+    const boardPath = this.getBoardPath(sourceLane);
+    if (!boardPath || this.getBoardPath(targetLane) !== boardPath) return;
+
+    const sourceTitle = (
+      sourceLane.querySelector(".kanban-plugin__lane-title-text")?.textContent || ""
+    )
+      .replace(/\s+/g, " ")
+      .trim();
+    const targetTitle = (
+      targetLane.querySelector(".kanban-plugin__lane-title-text")?.textContent || ""
+    )
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!sourceTitle || !targetTitle) return;
+
+    const cardPattern = /^- (?:\[[ xX]\] )?/;
+    let movedCount = 0;
+    await this.processFile(boardPath, (content) => {
+      const lines = content.split(/\r?\n/);
+      const sections = [];
+      for (let index = 0; index < lines.length; index += 1) {
+        const match = lines[index].match(/^##\s+(.+?)\s*$/);
+        if (!match) continue;
+        sections.push({ title: match[1].trim(), start: index });
+      }
+
+      const source = sections.find(
+        (section) => section.title.toLocaleLowerCase() === sourceTitle.toLocaleLowerCase()
+      );
+      const target = sections.find(
+        (section) => section.title.toLocaleLowerCase() === targetTitle.toLocaleLowerCase()
+      );
+      if (!source || !target || source === target) return content;
+
+      const sectionEnd = (section) => {
+        const next = sections.find((candidate) => candidate.start > section.start);
+        return next ? next.start : lines.length;
+      };
+      const sourceEnd = sectionEnd(source);
+      const targetEnd = sectionEnd(target);
+      const sourceLines = lines.slice(source.start + 1, sourceEnd);
+      const cards = sourceLines.filter((line) => cardPattern.test(line));
+      if (cards.length === 0) return content;
+      movedCount = cards.length;
+
+      const withoutCards = new Set(
+        sourceLines
+          .map((line, index) => (cardPattern.test(line) ? index : -1))
+          .filter((index) => index >= 0)
+      );
+      const nextLines = lines.filter((line, index) => {
+        if (index <= source.start || index >= sourceEnd) return true;
+        return !withoutCards.has(index - source.start - 1);
+      });
+
+      const targetHeadingIndex = nextLines.findIndex(
+        (line) => line.match(/^##\s+(.+?)\s*$/)?.[1].trim().toLocaleLowerCase() === targetTitle.toLocaleLowerCase()
+      );
+      if (targetHeadingIndex < 0) return content;
+      let insertAt = targetHeadingIndex + 1;
+      while (insertAt < nextLines.length && nextLines[insertAt].trim() === "") insertAt += 1;
+      nextLines.splice(insertAt, 0, ...cards, "");
+      return `${nextLines.join("\n").replace(/\n+$/, "")}\n`;
+    });
+
+    if (movedCount === 0) {
+      new Notice(`Aucune carte à déplacer depuis « ${sourceTitle} »`);
+      return;
+    }
+    new Notice(`${movedCount} carte${movedCount > 1 ? "s" : ""} déplacée${movedCount > 1 ? "s" : ""} vers « ${targetTitle} »`);
+    this.queueRender();
   }
 
   renderLaneTotals(now = Date.now()) {
