@@ -704,9 +704,12 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     const hasSleepPlanner =
       boardPath === normalizePath("Tableau de tâches.md");
 
-    if (sleepPlanner) sleepPlanner.hidden = !hasSleepPlanner;
-    if (bedtimeMetric) bedtimeMetric.hidden = !hasSleepPlanner;
-    if (hasSleepPlanner) {
+    // The daily board can be renamed. Keep the sleep planner on every main
+    // Kanban board, but never display it on linked sublists.
+    const isSleepPlannerVisible = !this.isSublistBoard(boardPath);
+    if (sleepPlanner) sleepPlanner.hidden = !isSleepPlannerVisible;
+    if (bedtimeMetric) bedtimeMetric.hidden = !isSleepPlannerVisible;
+    if (isSleepPlannerVisible) {
       this.updateSleepPlan(summary, boardPath);
       this.updateBedtimeStatus(
         summary,
@@ -887,7 +890,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
   }
 
   updateSleepPlan(summary, boardPath) {
-    const plan = this.store.sleepPlans[boardPath] || {};
+    const plan = this.getSleepPlan(boardPath);
     const durationInput = summary.querySelector(`.${SUMMARY_CLASS}__sleep-duration`);
     const wakeInput = summary.querySelector(`.${SUMMARY_CLASS}__sleep-wake`);
 
@@ -922,7 +925,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     todoItem?.classList.remove("is-after-bedtime", "is-before-bedtime");
     allItem?.classList.remove("is-after-bedtime", "is-before-bedtime");
 
-    const plan = this.store.sleepPlans[boardPath] || {};
+    const plan = this.getSleepPlan(boardPath);
     const durationMinutes = this.parseSleepDuration(plan.duration);
     const wakeMatch = String(plan.wake || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
     if (durationMinutes === null || !wakeMatch) return;
@@ -960,6 +963,38 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
       metric.classList.add("is-safe");
       metric.title = "Les deux fins prévues précèdent l’heure de coucher";
     }
+  }
+
+  isSublistBoard(boardPath) {
+    const file = this.app.vault.getAbstractFileByPath(boardPath);
+    return Boolean(
+      file &&
+        this.app.metadataCache.getFileCache(file)?.frontmatter?.[
+          "kanban-task-timer-sublist"
+        ] === true
+    );
+  }
+
+  getSleepPlan(boardPath) {
+    const existing = this.store.sleepPlans[boardPath];
+    if (existing) return existing;
+
+    // Migrate the one saved plan from a board which no longer exists after a
+    // rename, without replacing any plan explicitly entered for this board.
+    const legacyPlans = Object.entries(this.store.sleepPlans).filter(
+      ([path, plan]) =>
+        path !== boardPath &&
+        !this.app.vault.getAbstractFileByPath(path) &&
+        plan?.duration &&
+        plan?.wake
+    );
+    if (legacyPlans.length !== 1) return {};
+
+    const [, legacyPlan] = legacyPlans[0];
+    const migrated = { duration: legacyPlan.duration, wake: legacyPlan.wake };
+    this.store.sleepPlans[boardPath] = migrated;
+    this.queueSave(true);
+    return migrated;
   }
 
   parseSleepDuration(value) {
