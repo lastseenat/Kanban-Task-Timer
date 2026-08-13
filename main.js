@@ -28,6 +28,7 @@ const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 const FILE_SETTLE_DELAY = 2000;
 const SUBLIST_MARKER_PATTERN = /^kanban-task-timer-sublist:\s*true\s*$/m;
+const SORT_CLASS = "kanban-task-timer-sort";
 
 function canonicalLaneTitle(value) {
   return String(value || "")
@@ -54,6 +55,9 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
         saved?.sleepPlans && typeof saved.sleepPlans === "object" ? saved.sleepPlans : {},
       forcedStarts:
         saved?.forcedStarts && typeof saved.forcedStarts === "object" ? saved.forcedStarts : {},
+      // Reset the experimental sorter state once so old layout styles cannot
+      // be reapplied after the previous DOM-based implementation.
+      sortOrders: {},
     };
 
     this.renderQueued = false;
@@ -164,6 +168,8 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     document.querySelectorAll(`.${LANE_MOVE_ALL_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${LANE_TOTAL_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${SUMMARY_CLASS}`).forEach((element) => element.remove());
+    document.querySelectorAll(`.${SORT_CLASS}`).forEach((element) => element.remove());
+    document.querySelectorAll(CARD_SELECTOR).forEach((card) => card.style.removeProperty("order"));
     document
       .querySelectorAll(`.${LANE_HIDDEN_CLASS}`)
       .forEach((element) => element.classList.remove(LANE_HIDDEN_CLASS));
@@ -179,6 +185,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
   }
 
   renderAllCards() {
+    this.renderSortControls();
     this.renderLaneToggles();
     this.renderLaneMoveButtons();
     this.renderLaneTotals();
@@ -248,6 +255,93 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
 
     this.updateCardForcedWarnings();
     this.renderSummaries();
+  }
+
+  renderSortControls() {
+    this.app.workspace.getLeavesOfType("kanban").forEach((leaf) => {
+      const view = leaf.view;
+      const board = view?.containerEl?.querySelector(BOARD_ROOT_SELECTOR);
+      const boardPath = view?.file?.path || this.getBoardPath(board);
+      if (!board || !boardPath || boardPath === "kanban") return;
+
+      let button = view.containerEl.querySelector(`.${SORT_CLASS}`);
+      if (!button && typeof view.addAction === "function") {
+        button = view.addAction("arrow-down-up", "Trier les cartes par durée", () => {
+          const current = this.store.sortOrders[boardPath] || "none";
+          const next = current === "asc" ? "desc" : "asc";
+          this.store.sortOrders[boardPath] = next;
+          this.updateSortButton(button, next);
+          this.queueSave();
+          void this.sortBoardFile(boardPath, next);
+        });
+        button.classList.add(SORT_CLASS);
+      }
+      if (button) this.updateSortButton(button, this.store.sortOrders[boardPath] || "none");
+    });
+  }
+
+  updateSortButton(button, order) {
+    const label =
+      order === "asc"
+        ? "Tri par durée croissante"
+        : order === "desc"
+          ? "Tri par durée décroissante"
+          : "Trier les cartes par durée";
+    setIcon(button, order === "asc" ? "sort-asc" : order === "desc" ? "sort-desc" : "arrow-down-up");
+    button.setAttribute("aria-label", label);
+    button.setAttribute("data-tooltip", label);
+    button.title = "Trier les cartes par durée (clics successifs : croissant, décroissant)";
+  }
+
+  async sortBoardFile(boardPath, order) {
+    const file = this.app.vault.getAbstractFileByPath(boardPath);
+    if (!file || file.extension !== "md") return;
+
+    let changed = false;
+    await this.processFile(file, (content) => {
+      const lineEnding = content.includes("\r\n") ? "\r\n" : "\n";
+      const lines = content.split(/\r?\n/);
+      let laneStart = null;
+
+      const sortLane = (start, end) => {
+        const taskIndexes = [];
+        const taskLines = [];
+        for (let index = start; index < end; index += 1) {
+          if (/^\s*-\s+\[[^\]]\]\s+/.test(lines[index])) {
+            taskIndexes.push(index);
+            taskLines.push(lines[index]);
+          }
+        }
+        if (taskLines.length < 2) return;
+
+        taskLines.sort((a, b) => {
+          const aDetails = this.parseTaskText(a.replace(/^\s*-\s+\[[^\]]\]\s+/, ""));
+          const bDetails = this.parseTaskText(b.replace(/^\s*-\s+\[[^\]]\]\s+/, ""));
+          const aDuration = aDetails?.durationMs ?? 0;
+          const bDuration = bDetails?.durationMs ?? 0;
+          return order === "desc" ? bDuration - aDuration : aDuration - bDuration;
+        });
+
+        taskIndexes.forEach((lineIndex, taskIndex) => {
+          if (lines[lineIndex] === taskLines[taskIndex]) return;
+          lines[lineIndex] = taskLines[taskIndex];
+          changed = true;
+        });
+      };
+
+      for (let index = 0; index < lines.length; index += 1) {
+        if (!/^##\s+/.test(lines[index])) continue;
+        if (laneStart !== null) sortLane(laneStart, index);
+        laneStart = index + 1;
+      }
+      if (laneStart !== null) sortLane(laneStart, lines.length);
+      return lines.join(lineEnding);
+    });
+
+    if (changed) {
+      this.boardTasks.delete(boardPath);
+      this.queueRender();
+    }
   }
 
   renderCardEstimate(card, details) {
