@@ -10,6 +10,7 @@ Kanban Task Timer ajoute des minuteurs persistants et des outils de suivi aux ca
 - Prévisions de fin et heures de début estimées
 - Heures de début imposées et points de contrôle
 - Affichage ou masquage des minuteurs par colonne
+- Déplacement d'une colonne entière vers la note choisie, automatiquement convertie en tableau Kanban si elle est vide
 - Sous-listes liées cliquables
 - Suppression de cartes depuis le tableau
 

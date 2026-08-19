@@ -281,6 +281,14 @@
   width: 100%;
 }
 
+.kanban-task-timer-move-all-separator {
+  margin-block: 1rem;
+}
+
+.kanban-task-timer-move-all-other-board {
+  width: 100%;
+}
+
 .kanban-task-timer-lane-toggle.is-hidden {
   color: var(--text-muted);
   opacity: 0.75;
