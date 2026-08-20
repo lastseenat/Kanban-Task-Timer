@@ -1,4 +1,4 @@
-const { Modal, Notice, Plugin, setIcon, normalizePath } = require("obsidian");
+const { FuzzySuggestModal, Modal, Notice, Plugin, setIcon, normalizePath } = require("obsidian");
 
 const CONTROL_CLASS = "kanban-task-timer";
 const CARD_SELECTOR = ".kanban-plugin__item-wrapper";
@@ -8,7 +8,6 @@ const LANE_MOVE_ALL_CLASS = "kanban-task-timer-lane-move-all";
 const LANE_TOTAL_CLASS = "kanban-task-timer-lane-total";
 const LANE_HIDDEN_CLASS = "kanban-task-timer-lane-hidden";
 const SUMMARY_CLASS = "kanban-task-timer-summary";
-const DELETE_CLASS = "kanban-task-timer-delete";
 const ESTIMATE_CLASS = "kanban-task-timer-estimate";
 const FORCED_START_COMPACT_CLASS = "kanban-task-timer-forced-start-compact";
 const FORCED_WARNING_CLASS = "kanban-task-timer-forced-warning";
@@ -29,6 +28,19 @@ const MINUTE = 60 * SECOND;
 const FILE_SETTLE_DELAY = 2000;
 const SUBLIST_MARKER_PATTERN = /^kanban-task-timer-sublist:\s*true\s*$/m;
 const SORT_CLASS = "kanban-task-timer-sort";
+const PLUGIN_RENDERED_SELECTOR = [
+  `.${CONTROL_CLASS}`,
+  `.${ESTIMATE_CLASS}`,
+  `.${FORCED_START_COMPACT_CLASS}`,
+  `.${FORCED_WARNING_CLASS}`,
+  `.${FORCED_START_LABEL_CLASS}`,
+  `.${MOBILE_RESET_CLASS}`,
+  `.${LANE_TOGGLE_CLASS}`,
+  `.${LANE_MOVE_ALL_CLASS}`,
+  `.${LANE_TOTAL_CLASS}`,
+  `.${SUMMARY_CLASS}`,
+  `.${SORT_CLASS}`,
+].join(", ");
 
 function canonicalLaneTitle(value) {
   return String(value || "")
@@ -94,7 +106,15 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
       document.removeEventListener("click", this.globalResetHandler, true)
     );
 
-    this.observer = new MutationObserver(() => this.queueRender());
+    this.observer = new MutationObserver((mutations) => {
+      // Ignore DOM churn produced by this plugin itself. The timer display and
+      // its SVG icons update frequently; re-rendering the whole board for
+      // those mutations causes a continuous layout/reflow loop and makes the
+      // Kanban scrollbar flicker.
+      if (mutations.some((mutation) => !this.isPluginRenderedMutation(mutation))) {
+        this.queueRender();
+      }
+    });
     this.observer.observe(document.body, { childList: true, subtree: true });
     this.register(() => this.observer.disconnect());
 
@@ -105,7 +125,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
         if (file.extension !== "md") return;
         this.fileModifiedAt.set(file.path, Date.now());
         this.boardTasks.delete(file.path);
-        if (file.path.startsWith(`${SUBLIST_FOLDER}/`)) {
+        if (this.isSublistBoard(file.path)) {
           this.queueSublistDurationSync(file.path);
           this.queueParentDurationSync(file.path);
         } else {
@@ -155,15 +175,11 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
 
   removeControls() {
     document.querySelectorAll(`.${CONTROL_CLASS}`).forEach((element) => element.remove());
-    document.querySelectorAll(`.${DELETE_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${ESTIMATE_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${FORCED_START_COMPACT_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${FORCED_WARNING_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${FORCED_START_LABEL_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${MOBILE_RESET_CLASS}`).forEach((element) => element.remove());
-    document
-      .querySelectorAll(`.${DELETE_CLASS}-container`)
-      .forEach((element) => element.classList.remove(`${DELETE_CLASS}-container`));
     document.querySelectorAll(`.${LANE_TOGGLE_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${LANE_MOVE_ALL_CLASS}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${LANE_TOTAL_CLASS}`).forEach((element) => element.remove());
@@ -173,6 +189,28 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     document
       .querySelectorAll(`.${LANE_HIDDEN_CLASS}`)
       .forEach((element) => element.classList.remove(LANE_HIDDEN_CLASS));
+  }
+
+  isPluginRenderedMutation(mutation) {
+    const target =
+      mutation.target?.nodeType === Node.ELEMENT_NODE
+        ? mutation.target
+        : mutation.target?.parentElement;
+    if (target?.closest(PLUGIN_RENDERED_SELECTOR)) return true;
+
+    if (mutation.type !== "childList") return false;
+    const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
+    if (changedNodes.length === 0) return true;
+
+    return changedNodes.every((node) => {
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return Boolean(node.parentElement?.closest(PLUGIN_RENDERED_SELECTOR));
+      }
+      return (
+        node.matches(PLUGIN_RENDERED_SELECTOR) ||
+        Boolean(node.closest(PLUGIN_RENDERED_SELECTOR))
+      );
+    });
   }
 
   queueRender() {
@@ -194,7 +232,6 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     const occurrencesByView = new WeakMap();
 
     for (const card of cards) {
-      this.ensureDeleteButton(card);
       const details = this.readCard(card) || this.readCardLoose(card);
       if (!details) {
         card.querySelector(`:scope > .${CONTROL_CLASS}`)?.remove();
@@ -287,7 +324,13 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
         : order === "desc"
           ? "Tri par durée décroissante"
           : "Trier les cartes par durée";
-    setIcon(button, order === "asc" ? "sort-asc" : order === "desc" ? "sort-desc" : "arrow-down-up");
+    const nextIcon =
+      order === "asc" ? "sort-asc" : order === "desc" ? "sort-desc" : "arrow-down-up";
+    if (button.dataset.iconName !== nextIcon) {
+      button.replaceChildren();
+      setIcon(button, nextIcon);
+      button.dataset.iconName = nextIcon;
+    }
     button.setAttribute("aria-label", label);
     button.setAttribute("data-tooltip", label);
     button.title = "Trier les cartes par durée (clics successifs : croissant, décroissant)";
@@ -523,7 +566,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
         button.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          this.showMoveAllMenu(lane, event);
+          this.openLaneDestinationPicker(lane);
         });
 
         const settings = header.querySelector(".kanban-plugin__lane-settings-button-wrapper");
@@ -531,10 +574,192 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
         else header.appendChild(button);
       }
 
-      setIcon(button, "arrow-right-left");
-      button.setAttribute("aria-label", "Déplacer toutes les cartes");
-      button.setAttribute("title", "Déplacer toutes les cartes");
+      if (!button.querySelector("svg")) setIcon(button, "folder-input");
+      button.setAttribute("aria-label", "Déplacer ce tableau vers une note");
+      button.setAttribute("title", "Déplacer ce tableau vers une note");
     }
+  }
+
+  openLaneDestinationPicker(sourceLane) {
+    const sourcePath = this.getBoardPath(sourceLane);
+    const files = this.app.vault
+      .getMarkdownFiles()
+      .filter((file) => file.path !== sourcePath && !file.path.startsWith(".trash/"));
+    if (files.length === 0) {
+      new Notice("Aucune note de destination n'est disponible");
+      return;
+    }
+
+    const plugin = this;
+    class DestinationNotePicker extends FuzzySuggestModal {
+      getItems() {
+        return files;
+      }
+
+      getItemText(file) {
+        return file.path;
+      }
+
+      onChooseItem(file) {
+        void plugin.moveLaneToNote(sourceLane, file.path);
+      }
+    }
+
+    const picker = new DestinationNotePicker(this.app);
+    picker.setPlaceholder("Déplacer le tableau vers la note…");
+    picker.open();
+  }
+
+  getLaneSectionMove(content, laneTitle, preferredIndex = -1) {
+    const lineEnding = content.includes("\r\n") ? "\r\n" : "\n";
+    const lines = content.split(/\r?\n/);
+    const sections = this.getKanbanSections(content);
+    const laneKey = canonicalLaneTitle(laneTitle);
+    const section =
+      sections.find((candidate) => canonicalLaneTitle(candidate.title) === laneKey) ||
+      sections[preferredIndex];
+    if (!section) return null;
+
+    // The Kanban settings footer belongs to the board, never to its final lane.
+    const settingsStart = lines.findIndex(
+      (line, index) => index > section.start && index < section.end && /^%%\s*kanban:settings/.test(line)
+    );
+    const sectionEnd = settingsStart >= 0 ? settingsStart : section.end;
+    const sectionLines = lines.slice(section.start, sectionEnd);
+    const cardCount = sectionLines.filter((line) => /^-\s+(?:\[[ xX]\]\s+)?/.test(line)).length;
+    const removed = new Set();
+    for (let index = section.start; index < sectionEnd; index += 1) removed.add(index);
+
+    return {
+      cardCount,
+      sectionLines,
+      sourceAfter: lines.filter((_, index) => !removed.has(index)).join(lineEnding),
+    };
+  }
+
+  isKanbanBoardContent(content) {
+    return (
+      /^kanban-plugin:\s*(?:board|basic)\s*$/mi.test(content) ||
+      /^%%\s*kanban:settings/m.test(content)
+    );
+  }
+
+  getAvailableLaneTitle(content, preferredTitle) {
+    const existing = new Set(
+      this.getKanbanSections(content).map((section) => canonicalLaneTitle(section.title))
+    );
+    if (!existing.has(canonicalLaneTitle(preferredTitle))) return preferredTitle;
+    let suffix = 2;
+    while (existing.has(canonicalLaneTitle(`${preferredTitle} (${suffix})`))) suffix += 1;
+    return `${preferredTitle} (${suffix})`;
+  }
+
+  createKanbanBoardFromLane(sectionLines, lineEnding = "\n") {
+    return [
+      "---",
+      "",
+      "kanban-plugin: board",
+      "",
+      "---",
+      "",
+      ...sectionLines,
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"kanban-plugin":"board","new-card-insertion-method":"append","list-collapse":[false]}',
+      "```",
+      "%%",
+      "",
+    ].join(lineEnding);
+  }
+
+  appendLaneToKanbanBoard(content, sectionLines) {
+    const lineEnding = content.includes("\r\n") ? "\r\n" : "\n";
+    const lines = content.split(/\r?\n/);
+    const settingsStart = lines.findIndex((line) => /^%%\s*kanban:settings/.test(line));
+    const insertAt = settingsStart >= 0 ? settingsStart : lines.length;
+    const before = lines.slice(0, insertAt);
+    const after = lines.slice(insertAt);
+    while (before.length && before[before.length - 1].trim() === "") before.pop();
+    return [...before, "", "", ...sectionLines, "", "", ...after].join(lineEnding);
+  }
+
+  async moveLaneToNote(sourceLane, targetPath) {
+    const sourcePath = this.getBoardPath(sourceLane);
+    const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
+    const targetFile = this.app.vault.getAbstractFileByPath(targetPath);
+    if (
+      !sourceFile ||
+      !targetFile ||
+      sourceFile.extension !== "md" ||
+      targetFile.extension !== "md" ||
+      sourcePath === targetPath
+    ) {
+      new Notice("Impossible d'ouvrir l'une des notes");
+      return;
+    }
+
+    const sourceContent = await this.app.vault.cachedRead(sourceFile);
+    const board = sourceLane.closest(BOARD_SELECTOR) || document;
+    const sourceLaneIndex = Array.from(board.querySelectorAll(LANE_SELECTOR)).indexOf(sourceLane);
+    const sourceTitle = this.getLaneTitle(sourceLane);
+    const move = this.getLaneSectionMove(sourceContent, sourceTitle, sourceLaneIndex);
+    if (!move) {
+      new Notice(`Le tableau « ${sourceTitle} » est introuvable`);
+      return;
+    }
+
+    let targetContentAfter = "";
+    let targetTitle = sourceTitle;
+    await this.processFile(targetFile, (content) => {
+      const lineEnding = content.includes("\r\n") ? "\r\n" : "\n";
+      if (content.trim() === "") {
+        targetContentAfter = this.createKanbanBoardFromLane(move.sectionLines, lineEnding);
+        return targetContentAfter;
+      }
+      if (!this.isKanbanBoardContent(content)) return content;
+
+      targetTitle = this.getAvailableLaneTitle(content, sourceTitle);
+      const sectionLines = [...move.sectionLines];
+      sectionLines[0] = `## ${targetTitle}`;
+      targetContentAfter = this.appendLaneToKanbanBoard(content, sectionLines);
+      return targetContentAfter;
+    });
+
+    if (!targetContentAfter) {
+      new Notice("La note cible doit être vide ou déjà être un tableau Kanban");
+      return;
+    }
+
+    let sourceRemoved = false;
+    await this.processFile(sourceFile, (content) => {
+      // Kanban may rewrite its note between the destination write and this
+      // callback. Re-locate the lane in the latest text instead of comparing
+      // snapshots, otherwise the destination receives a copy while the source
+      // lane is left behind.
+      const currentMove = this.getLaneSectionMove(content, sourceTitle, sourceLaneIndex);
+      if (!currentMove) return content;
+      sourceRemoved = true;
+      return currentMove.sourceAfter;
+    });
+    if (!sourceRemoved) {
+      new Notice("Le tableau source est introuvable : il a été copié, mais n'a pas pu être supprimé");
+      return;
+    }
+
+    this.transferMovedTimerState(
+      sourceContent,
+      targetContentAfter,
+      sourcePath,
+      targetPath,
+      sourceTitle,
+      targetTitle
+    );
+    this.boardTasks.delete(sourcePath);
+    this.boardTasks.delete(targetPath);
+    this.queueSave(true);
+    this.queueRender();
+    new Notice(`Tableau « ${sourceTitle} » déplacé vers « ${targetPath} »`);
   }
 
   showMoveAllMenu(sourceLane, event) {
@@ -547,7 +772,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     const targets = Array.from(board.querySelectorAll(LANE_SELECTOR)).filter(
       (lane) => lane !== sourceLane
     );
-    if (!sourceTitle || targets.length === 0) return;
+    if (!sourceTitle) return;
 
     const modal = new Modal(this.app);
     modal.titleEl.setText("Déplacer toutes les cartes");
@@ -570,8 +795,346 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
           void this.moveAllCards(sourceLane, targetLane);
         });
       }
+
+      const separator = contentEl.createEl("hr");
+      separator.addClass("kanban-task-timer-move-all-separator");
+      const anotherBoard = contentEl.createEl("button", {
+        text: "Vers un autre tableau…",
+        cls: "kanban-task-timer-move-all-other-board",
+      });
+      anotherBoard.addEventListener("click", () => {
+        modal.close();
+        void this.showMoveAllToAnotherBoardMenu(sourceLane);
+      });
     };
     modal.open();
+  }
+
+  async showMoveAllToAnotherBoardMenu(sourceLane) {
+    const sourcePath = this.getBoardPath(sourceLane);
+    if (!sourcePath || sourcePath === "kanban") {
+      new Notice("Impossible d'identifier le tableau source");
+      return;
+    }
+
+    const boards = await this.getOtherKanbanBoards(sourcePath);
+    if (boards.length === 0) {
+      new Notice("Aucun autre tableau Kanban n'a été trouvé");
+      return;
+    }
+
+    const sourceTitle = this.getLaneTitle(sourceLane);
+    const modal = new Modal(this.app);
+    modal.titleEl.setText("Déplacer toutes les cartes vers un autre tableau");
+    modal.onOpen = () => {
+      const { contentEl } = modal;
+      contentEl.createEl("p", {
+        text: `Déplacer les cartes de « ${sourceTitle} » vers :`,
+      });
+
+      const boardLabel = contentEl.createEl("label", { text: "Note de destination" });
+      const boardSelect = contentEl.createEl("select");
+      boardLabel.setAttribute("for", "kanban-task-timer-target-board");
+      boardSelect.id = "kanban-task-timer-target-board";
+      boardSelect.createEl("option", { text: "Choisir un tableau…", value: "" });
+      for (const board of boards) {
+        boardSelect.createEl("option", { text: board.path, value: board.path });
+      }
+
+      const laneLabel = contentEl.createEl("label", { text: "Colonne de destination" });
+      const laneSelect = contentEl.createEl("select", { attr: { disabled: "true" } });
+      laneLabel.setAttribute("for", "kanban-task-timer-target-lane");
+      laneSelect.id = "kanban-task-timer-target-lane";
+      laneSelect.createEl("option", { text: "Choisir d'abord un tableau…", value: "" });
+
+      const moveButton = contentEl.createEl("button", {
+        text: "Déplacer les cartes",
+        cls: "mod-cta",
+        attr: { disabled: "true" },
+      });
+
+      const refreshMoveButton = () => {
+        moveButton.disabled = !boardSelect.value || !laneSelect.value;
+      };
+
+      boardSelect.addEventListener("change", async () => {
+        laneSelect.replaceChildren();
+        laneSelect.createEl("option", { text: "Chargement…", value: "" });
+        laneSelect.disabled = true;
+        refreshMoveButton();
+
+        const board = boards.find((candidate) => candidate.path === boardSelect.value);
+        const destination = board ? await this.getDestinationLanes(board, sourceTitle) : null;
+        const lanes = destination?.lanes || [];
+        laneSelect.replaceChildren();
+        laneSelect.createEl("option", {
+          text: destination?.createsBoard
+            ? `Créer le tableau avec la colonne « ${sourceTitle} »`
+            : lanes.length
+              ? "Choisir une colonne…"
+              : "Aucune colonne trouvée",
+          value: "",
+        });
+        if (destination?.createsBoard) {
+          laneSelect.createEl("option", { text: `« ${sourceTitle} »`, value: sourceTitle });
+        }
+        for (const title of lanes) {
+          laneSelect.createEl("option", { text: title, value: title });
+        }
+        laneSelect.disabled = lanes.length === 0 && !destination?.createsBoard;
+        refreshMoveButton();
+      });
+      laneSelect.addEventListener("change", refreshMoveButton);
+      moveButton.addEventListener("click", () => {
+        if (!boardSelect.value || !laneSelect.value) return;
+        modal.close();
+        void this.moveAllCardsToAnotherBoard(sourceLane, boardSelect.value, laneSelect.value);
+      });
+    };
+    modal.open();
+  }
+
+  getLaneTitle(lane) {
+    return (lane?.querySelector(".kanban-plugin__lane-title-text")?.textContent || "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  async getOtherKanbanBoards(sourcePath) {
+    const matches = new Map();
+
+    // Include boards currently open in Kanban views immediately. A newly
+    // created board can be visible before Obsidian has refreshed its metadata
+    // cache, which used to make it disappear from the destination picker.
+    for (const leaf of this.app.workspace.getLeavesOfType("kanban")) {
+      const file = leaf.view?.file;
+      if (file?.extension === "md" && file.path !== sourcePath) {
+        matches.set(file.path, file);
+      }
+    }
+
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (file.path === sourcePath) continue;
+      const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const marker = String(frontmatter?.["kanban-plugin"] || "").toLocaleLowerCase();
+      if (marker === "board" || marker === "basic") {
+        matches.set(file.path, file);
+        continue;
+      }
+      const content = await this.app.vault.cachedRead(file);
+      if (
+        /^kanban-plugin:\s*(?:board|basic)\s*$/mi.test(content) ||
+        /^%%\s*kanban:settings/m.test(content) ||
+        content.trim() === ""
+      ) {
+        matches.set(file.path, file);
+      }
+    }
+    return Array.from(matches.values()).sort((a, b) => a.path.localeCompare(b.path, "fr"));
+  }
+
+  async getDestinationLanes(file, sourceTitle) {
+    const content = await this.app.vault.cachedRead(file);
+    const lanes = this.getKanbanSections(content).map((section) => section.title);
+    return {
+      lanes,
+      createsBoard: lanes.length === 0 && content.trim() === "" && Boolean(sourceTitle),
+    };
+  }
+
+  getKanbanSections(content) {
+    const lines = content.split(/\r?\n/);
+    const sections = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      const match = lines[index].match(/^##\s+(.+?)\s*$/);
+      if (match) sections.push({ title: match[1].trim(), start: index });
+    }
+    return sections.map((section, index) => ({
+      ...section,
+      end: sections[index + 1]?.start ?? lines.length,
+    }));
+  }
+
+  getLaneCardMove(content, laneTitle, preferredIndex = -1) {
+    const lineEnding = content.includes("\r\n") ? "\r\n" : "\n";
+    const lines = content.split(/\r?\n/);
+    const sections = this.getKanbanSections(content);
+    const laneKey = canonicalLaneTitle(laneTitle);
+    const section =
+      sections.find((candidate) => canonicalLaneTitle(candidate.title) === laneKey) ||
+      sections[preferredIndex];
+    if (!section) return null;
+
+    const settingsStart = lines.findIndex(
+      (line, index) => index > section.start && index < section.end && /^%%\s*kanban:settings/.test(line)
+    );
+    const cardSectionEnd = settingsStart >= 0 ? settingsStart : section.end;
+    const cardStarts = [];
+    for (let index = section.start + 1; index < cardSectionEnd; index += 1) {
+      if (/^-\s+(?:\[[ xX]\]\s+)?/.test(lines[index])) cardStarts.push(index);
+    }
+    if (cardStarts.length === 0) return null;
+
+    const blocks = cardStarts.map((start, index) =>
+      lines.slice(start, cardStarts[index + 1] ?? cardSectionEnd)
+    );
+    const removedLines = new Set();
+    for (const [index, start] of cardStarts.entries()) {
+      const end = cardStarts[index + 1] ?? cardSectionEnd;
+      for (let lineIndex = start; lineIndex < end; lineIndex += 1) removedLines.add(lineIndex);
+    }
+    const withoutCards = lines.filter((_, index) => !removedLines.has(index));
+    return {
+      cardCount: cardStarts.length,
+      blocks,
+      sourceAfter: withoutCards.join(lineEnding),
+    };
+  }
+
+  insertCardBlocksIntoLane(content, laneTitle, blocks) {
+    const lineEnding = content.includes("\r\n") ? "\r\n" : "\n";
+    const lines = content.split(/\r?\n/);
+    const section = this.getKanbanSections(content).find(
+      (candidate) => canonicalLaneTitle(candidate.title) === canonicalLaneTitle(laneTitle)
+    );
+    if (!section) return null;
+
+    let insertAt = section.start + 1;
+    while (insertAt < section.end && lines[insertAt].trim() === "") insertAt += 1;
+    const insertedLines = blocks.flat();
+    if (insertedLines[insertedLines.length - 1]?.trim()) insertedLines.push("");
+    lines.splice(insertAt, 0, ...insertedLines);
+    return lines.join(lineEnding);
+  }
+
+  createKanbanBoardWithLane(laneTitle, blocks, lineEnding = "\n") {
+    const cards = blocks
+      .flat()
+      .join(lineEnding)
+      .replace(/\s+$/, "");
+    return [
+      "---",
+      "",
+      "kanban-plugin: board",
+      "",
+      "---",
+      "",
+      `## ${laneTitle}`,
+      "",
+      cards,
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"kanban-plugin":"board","new-card-insertion-method":"append","list-collapse":[false]}',
+      "```",
+      "%%",
+      "",
+    ].join(lineEnding);
+  }
+
+  async moveAllCardsToAnotherBoard(sourceLane, targetPath, targetTitle) {
+    const sourcePath = this.getBoardPath(sourceLane);
+    const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
+    const targetFile = this.app.vault.getAbstractFileByPath(targetPath);
+    if (
+      !sourceFile ||
+      !targetFile ||
+      sourceFile.extension !== "md" ||
+      targetFile.extension !== "md" ||
+      sourcePath === targetPath
+    ) {
+      new Notice("Impossible d'ouvrir l'un des tableaux");
+      return;
+    }
+
+    const sourceContent = await this.app.vault.cachedRead(sourceFile);
+    const board = sourceLane.closest(BOARD_SELECTOR) || document;
+    const sourceLaneIndex = Array.from(board.querySelectorAll(LANE_SELECTOR)).indexOf(sourceLane);
+    const sourceTitle = this.getLaneTitle(sourceLane);
+    const move = this.getLaneCardMove(sourceContent, sourceTitle, sourceLaneIndex);
+    if (!move) {
+      new Notice(`Aucune carte à déplacer depuis « ${sourceTitle} »`);
+      return;
+    }
+
+    let targetContentAfter = "";
+    await this.processFile(targetFile, (content) => {
+      const next =
+        this.insertCardBlocksIntoLane(content, targetTitle, move.blocks) ||
+        (content.trim() === ""
+          ? this.createKanbanBoardWithLane(
+              targetTitle,
+              move.blocks,
+              content.includes("\r\n") ? "\r\n" : "\n"
+            )
+          : null);
+      if (!next) return content;
+      targetContentAfter = next;
+      return next;
+    });
+    if (!targetContentAfter) {
+      new Notice(`La colonne « ${targetTitle} » est introuvable dans le tableau cible`);
+      return;
+    }
+
+    let sourceRemoved = false;
+    await this.processFile(sourceFile, (content) => {
+      // We write the destination first to avoid ever losing cards. If Kanban
+      // changed the source meanwhile, leave it untouched and ask for a retry.
+      if (content !== sourceContent) return content;
+      sourceRemoved = true;
+      return move.sourceAfter;
+    });
+
+    if (!sourceRemoved) {
+      new Notice("Les cartes ont été copiées, mais le tableau source a changé : réessayez pour finaliser le déplacement");
+      return;
+    }
+
+    this.transferMovedTimerState(
+      sourceContent,
+      targetContentAfter,
+      sourcePath,
+      targetPath,
+      sourceTitle,
+      targetTitle
+    );
+    this.boardTasks.delete(sourcePath);
+    this.boardTasks.delete(targetPath);
+    this.queueSave(true);
+    this.queueRender();
+    new Notice(`${move.cardCount} carte${move.cardCount > 1 ? "s" : ""} déplacée${move.cardCount > 1 ? "s" : ""} vers « ${targetPath} »`);
+  }
+
+  transferMovedTimerState(sourceContent, targetContent, sourcePath, targetPath, sourceTitle, targetTitle) {
+    const makeRefs = (content, boardPath) => {
+      const occurrences = new Map();
+      return this.parseBoardTasks(content, boardPath).map((task) => {
+        const occurrence = (occurrences.get(task.stableText) || 0) + 1;
+        occurrences.set(task.stableText, occurrence);
+        return { ...task, key: `${boardPath}::${task.stableText}::${occurrence}` };
+      });
+    };
+    const sourceRefs = makeRefs(sourceContent, sourcePath).filter(
+      (task) => canonicalLaneTitle(task.laneTitle) === canonicalLaneTitle(sourceTitle)
+    );
+    const targetRefs = makeRefs(targetContent, targetPath).filter(
+      (task) => canonicalLaneTitle(task.laneTitle) === canonicalLaneTitle(targetTitle)
+    );
+
+    for (let index = 0; index < sourceRefs.length; index += 1) {
+      const source = sourceRefs[index];
+      const target = targetRefs[index];
+      if (!target || source.stableText !== target.stableText) continue;
+      if (this.store.timers[source.key]) {
+        this.store.timers[target.key] = this.store.timers[source.key];
+        delete this.store.timers[source.key];
+      }
+      if (this.store.forcedStarts[source.key]) {
+        this.store.forcedStarts[target.key] = this.store.forcedStarts[source.key];
+        delete this.store.forcedStarts[source.key];
+      }
+    }
   }
 
   async moveAllCards(sourceLane, targetLane) {
@@ -1191,7 +1754,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     const load = this.app.vault
       .cachedRead(file)
       .then((content) => {
-        this.boardTasks.set(boardPath, this.parseBoardTasks(content));
+        this.boardTasks.set(boardPath, this.parseBoardTasks(content, boardPath));
         this.queueRender();
       })
       .catch((error) => {
@@ -1205,7 +1768,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     await load;
   }
 
-  parseBoardTasks(content) {
+  parseBoardTasks(content, boardPath = "") {
     const tasks = [];
     let laneTitle = "";
 
@@ -1225,7 +1788,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
           ...details,
           completed: /x/i.test(card[1]),
           laneTitle,
-          sublistLink: this.extractSublistLink(card[2]),
+          sublistLink: this.extractSublistLink(card[2], boardPath),
         });
       }
     }
@@ -1240,20 +1803,18 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
       ) || card;
     const clone = content.cloneNode(true);
     clone
-      .querySelectorAll(`.${CONTROL_CLASS}, .${DELETE_CLASS}, .${FORCED_START_LABEL_CLASS}`)
+      .querySelectorAll(`.${CONTROL_CLASS}, .${FORCED_START_LABEL_CLASS}`)
       .forEach((element) => element.remove());
     const details = this.parseTaskText(clone.textContent || "");
     if (!details) return null;
+    const boardPath = this.getBoardPath(card);
 
     const linkedElement = Array.from(
       content.querySelectorAll("a.internal-link[data-href]")
     ).find((element) => {
       const target = (element.dataset.href || "").trim();
       const label = (element.textContent || "").replace(/\s+/g, " ").trim();
-      return (
-        target.startsWith(`${SUBLIST_FOLDER}/`) ||
-        label.toLocaleLowerCase() === SUBLIST_ALIAS.toLocaleLowerCase()
-      );
+      return this.isSublistLinkTarget(target, label, boardPath);
     });
 
     return {
@@ -1269,7 +1830,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
       ) || card;
     const clone = content.cloneNode(true);
     clone.querySelectorAll(
-      `.${CONTROL_CLASS}, .${DELETE_CLASS}, .${FORCED_START_LABEL_CLASS}`
+      `.${CONTROL_CLASS}, .${FORCED_START_LABEL_CLASS}`
     ).forEach((element) =>
       element.remove()
     );
@@ -1277,14 +1838,12 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     const details = this.parseLooseTaskText(text);
     if (!details) return null;
     const { taskTitle: title, stableText } = details;
+    const boardPath = this.getBoardPath(card);
     const linkedElement = Array.from(content.querySelectorAll("a.internal-link[data-href]")).find(
       (element) => {
         const target = (element.dataset.href || "").trim();
         const label = (element.textContent || "").replace(/\s+/g, " ").trim();
-        return (
-          target.startsWith(`${SUBLIST_FOLDER}/`) ||
-          label.toLocaleLowerCase() === SUBLIST_ALIAS.toLocaleLowerCase()
-        );
+        return this.isSublistLinkTarget(target, label, boardPath);
       }
     );
 
@@ -1356,16 +1915,29 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     return { durationMs, stableText, taskTitle };
   }
 
-  extractSublistLink(sourceText) {
+  isSublistLinkTarget(target, alias = "", sourcePath = "") {
+    if (!target) return false;
+    if (target.startsWith(`${SUBLIST_FOLDER}/`)) return true;
+    if (alias.toLocaleLowerCase() === SUBLIST_ALIAS.toLocaleLowerCase()) return true;
+
+    const linkedPath = this.resolveLinkedPath(target, sourcePath);
+    const linkedFile = this.app.vault.getAbstractFileByPath(linkedPath);
+    return Boolean(
+      linkedFile &&
+        linkedFile.extension === "md" &&
+        this.app.metadataCache.getFileCache(linkedFile)?.frontmatter?.[
+          "kanban-task-timer-sublist"
+        ] === true
+    );
+  }
+
+  extractSublistLink(sourceText, sourcePath = "") {
     WIKI_LINK_PATTERN.lastIndex = 0;
     let match;
     while ((match = WIKI_LINK_PATTERN.exec(sourceText)) !== null) {
       const target = (match[1] || "").trim();
       const alias = (match[2] || "").replace(/\s+/g, " ").trim();
-      if (
-        target.startsWith(`${SUBLIST_FOLDER}/`) ||
-        alias.toLocaleLowerCase() === SUBLIST_ALIAS.toLocaleLowerCase()
-      ) {
+      if (this.isSublistLinkTarget(target, alias, sourcePath)) {
         return target;
       }
     }
@@ -1568,17 +2140,15 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
 
     const forcedStart = this.store.forcedStarts[key] || "";
     const forcedStartButton = controls.querySelector(`.${CONTROL_CLASS}__forced-start`);
-    forcedStartButton.replaceChildren();
-    setIcon(forcedStartButton, "clock");
+    if (!forcedStartButton.querySelector("svg")) setIcon(forcedStartButton, "clock");
     const sublistIconButton = controls.querySelector(`.${CONTROL_CLASS}__sublist`);
-    sublistIconButton.replaceChildren();
-    setIcon(sublistIconButton, "corner-down-right");
+    if (!sublistIconButton.querySelector("svg")) {
+      setIcon(sublistIconButton, "corner-down-right");
+    }
     const unlinkIconButton = controls.querySelector(`.${CONTROL_CLASS}__unlink`);
-    unlinkIconButton.replaceChildren();
-    setIcon(unlinkIconButton, "x");
+    if (!unlinkIconButton.querySelector("svg")) setIcon(unlinkIconButton, "x");
     const resetIconButton = controls.querySelector(`.${CONTROL_CLASS}__reset`);
-    resetIconButton.replaceChildren();
-    setIcon(resetIconButton, "rotate-ccw");
+    if (!resetIconButton.querySelector("svg")) setIcon(resetIconButton, "rotate-ccw");
     forcedStartButton.classList.toggle("has-forced-start", Boolean(forcedStart));
     forcedStartButton.title = forcedStart
       ? `DÃ©but imposÃ© : ${forcedStart} (cliquer pour modifier)`
@@ -1588,13 +2158,6 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
       : "D\u00e9finir une heure de d\u00e9but impos\u00e9e";
     forcedStartButton.setAttribute("aria-label", forcedStartButton.title);
     forcedStartButton.removeAttribute("title");
-
-    const deleteButton = this.ensureDeleteButton(card);
-    deleteButton.dataset.boardPath = boardPath;
-    deleteButton.dataset.stableText = stableText;
-    deleteButton.dataset.occurrence = String(occurrence);
-    deleteButton.dataset.taskTitle = taskTitle || stableText;
-    card.classList.add(`${DELETE_CLASS}-container`);
 
     const sublistButton = controls.querySelector(`.${CONTROL_CLASS}__sublist`);
     const sublistLabel = sublistPath
@@ -1632,12 +2195,10 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
       });
       const host =
         card.querySelector(".kanban-plugin__item-postfix-button-wrapper") || card;
-      const deleteButton = host.querySelector(`.${DELETE_CLASS}`);
-      host.insertBefore(button, deleteButton || null);
+      host.appendChild(button);
     }
     button.dataset.timerKey = key;
-    button.replaceChildren();
-    setIcon(button, "clock");
+    if (!button.querySelector("svg")) setIcon(button, "clock");
     const forcedStart = this.store.forcedStarts[key] || "";
     button.classList.toggle("has-forced-start", Boolean(forcedStart));
     button.title = forcedStart
@@ -1696,10 +2257,9 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
       });
       const host =
         card.querySelector(".kanban-plugin__item-postfix-button-wrapper") || card;
-      host.insertBefore(button, host.querySelector(`.${DELETE_CLASS}`) || null);
+      host.appendChild(button);
     }
-    button.replaceChildren();
-    setIcon(button, "rotate-ccw");
+    if (!button.querySelector("svg")) setIcon(button, "rotate-ccw");
   }
 
   setForcedStart(controls) {
@@ -1743,108 +2303,12 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     input.focus();
   }
 
-  ensureDeleteButton(card) {
-    let deleteButton = card.querySelector(`.${DELETE_CLASS}`);
-    if (deleteButton) return deleteButton;
-
-    deleteButton = document.createElement("button");
-    deleteButton.className = `${DELETE_CLASS} clickable-icon`;
-    deleteButton.type = "button";
-    deleteButton.textContent = "×";
-    deleteButton.replaceChildren();
-    setIcon(deleteButton, "x");
-    deleteButton.setAttribute("aria-label", "Supprimer la carte");
-    deleteButton.setAttribute("title", "Supprimer la carte");
-    const deleteCardFromButton = (event) => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (deleteButton.dataset.deleting === "true") return;
-      deleteButton.dataset.deleting = "true";
-      void this.deleteCard(deleteButton, card)
-        .catch((error) => {
-          console.error("Kanban Task Timer: unable to delete the card", error);
-        })
-        .finally(() => {
-          delete deleteButton.dataset.deleting;
-        });
-    };
-    for (const eventName of ["pointerdown", "mousedown", "touchstart", "click"]) {
-      deleteButton.addEventListener(eventName, deleteCardFromButton, true);
-    }
-    const buttonHost =
-      card.querySelector(".kanban-plugin__item-postfix-button-wrapper") || card;
-    buttonHost.appendChild(deleteButton);
-    card.classList.add(`${DELETE_CLASS}-container`);
-    return deleteButton;
-  }
-
   currentElapsed(timer, now = Date.now()) {
     const activeElapsed =
       timer.running && Number.isFinite(timer.startedAt)
         ? Math.max(0, now - timer.startedAt)
         : 0;
     return Math.max(0, Number(timer.elapsedMs) || 0) + activeElapsed;
-  }
-
-  async deleteCard(button, card) {
-    let boardPath = button?.dataset.boardPath;
-    let stableText = button?.dataset.stableText;
-    let occurrence = Number(button?.dataset.occurrence) || 0;
-    let title = button?.dataset.taskTitle || "";
-
-    if ((!boardPath || !stableText || !occurrence) && card) {
-      const details = this.readCard(card) || this.readCardLoose(card);
-      if (!details) return;
-
-      boardPath = this.getBoardPath(card);
-      stableText = details.stableText;
-      title = details.taskTitle;
-      occurrence = 0;
-      for (const candidate of document.querySelectorAll(CARD_SELECTOR)) {
-        const candidateDetails = this.readCard(candidate) || this.readCardLoose(candidate);
-        if (
-          candidateDetails?.stableText === stableText &&
-          this.getBoardPath(candidate) === boardPath
-        ) {
-          occurrence += 1;
-        }
-        if (candidate === card) break;
-      }
-    }
-
-    title ||= "cette carte";
-    if (!boardPath || !stableText || !occurrence) return;
-    const file = this.app.vault.getAbstractFileByPath(boardPath);
-    if (!file || file.extension !== "md") return;
-    let matchCount = 0;
-    let changed = false;
-    await this.processFile(file, (content) => {
-      const lines = content.split(/(\r?\n)/);
-      const next = [];
-      for (let index = 0; index < lines.length; index += 2) {
-        const line = lines[index];
-        const newline = lines[index + 1] || "";
-        const match = line.match(/^\s*-\s+\[[^\]]\]\s+(.*)$/);
-        if (match) {
-          const parsed = this.parseTaskText(match[1]) || this.parseLooseTaskText(match[1]);
-          if (parsed?.stableText === stableText) {
-            matchCount += 1;
-            if (matchCount === occurrence) {
-              changed = true;
-              continue;
-            }
-          }
-        }
-        next.push(line, newline);
-      }
-      return changed ? next.join("") : content;
-    });
-
-    if (!changed) return;
-    delete this.store.timers[`${boardPath}::${stableText}::${occurrence}`];
-    this.boardTasks.delete(boardPath);
-    this.queueSave(true);
-    this.queueRender();
   }
 
   async createOrOpenSublist(controls) {
@@ -1953,7 +2417,7 @@ kanban-task-timer-sublist: true
 
         matchingOccurrence += 1;
         if (matchingOccurrence !== occurrence) return line;
-        if (this.extractSublistLink(body)) return line;
+        if (this.extractSublistLink(body, boardPath)) return line;
 
         const durationMatch = body.match(DURATION_PATTERN);
         if (!durationMatch) return line;
@@ -2143,7 +2607,7 @@ kanban-task-timer-sublist: true
         controls,
       });
     } else {
-      if ((controls.dataset.boardPath || "").startsWith(`${SUBLIST_FOLDER}/`)) {
+      if (this.isSublistBoard(controls.dataset.boardPath)) {
         await this.pauseOtherTimersInBoard(controls.dataset.boardPath, key);
       }
       timer.resetDurationMs = timer.durationMs;
@@ -2213,7 +2677,7 @@ kanban-task-timer-sublist: true
     }
 
     this.queueSave(true);
-    if ((ref.boardPath || "").startsWith(`${SUBLIST_FOLDER}/`)) {
+    if (this.isSublistBoard(ref.boardPath)) {
       await this.syncParentCardDurations(ref.boardPath);
     }
   }
@@ -2238,7 +2702,7 @@ kanban-task-timer-sublist: true
     void (async () => {
       // A pause is immediately reflected in the timer UI. Delay only the
       // Markdown change so a drag-and-drop save from Kanban cannot race it.
-      if ((ref.boardPath || "").startsWith(`${SUBLIST_FOLDER}/`)) {
+      if (this.isSublistBoard(ref.boardPath)) {
         await this.waitForKanbanSave();
       }
       await this.waitForFileSettled([ref.boardPath]);
@@ -2388,7 +2852,7 @@ kanban-task-timer-sublist: true
     this.queueSave(true);
     this.updateVisibleTimers();
 
-    if ((boardPath || "").startsWith(`${SUBLIST_FOLDER}/`)) {
+    if (this.isSublistBoard(boardPath)) {
       await this.waitForKanbanSave();
     }
     await this.waitForFileSettled([boardPath]);
@@ -2401,7 +2865,7 @@ kanban-task-timer-sublist: true
       timer.resetDurationMs = restoredDurationMs;
     }
 
-    if ((boardPath || "").startsWith(`${SUBLIST_FOLDER}/`)) {
+    if (this.isSublistBoard(boardPath)) {
       await this.syncParentCardDurations(boardPath);
     }
     this.updateVisibleTimers();
@@ -2562,7 +3026,7 @@ kanban-task-timer-sublist: true
     if (changed) {
       this.boardTasks.delete(boardPath);
       this.queueRender();
-      if (boardPath.startsWith(`${SUBLIST_FOLDER}/`)) {
+      if (this.isSublistBoard(boardPath)) {
         this.queueParentDurationSync(boardPath);
       }
     }
@@ -2583,7 +3047,7 @@ kanban-task-timer-sublist: true
   async ensureExistingSubtaskDurations() {
     const sublistFiles = this.app.vault
       .getMarkdownFiles()
-      .filter((file) => file.path.startsWith(`${SUBLIST_FOLDER}/`));
+      .filter((file) => this.isSublistBoard(file.path));
 
     for (const file of sublistFiles) {
       await this.ensureSubtaskDurations(file.path);
@@ -2715,7 +3179,7 @@ kanban-task-timer-sublist: true
       let changed = false;
       await this.processFile(file, (content) =>
         content.replace(/^(\s*-\s+\[[^\]]\]\s+)(.*)$/gm, (line, prefix, body) => {
-          const linkedPath = this.extractSublistLink(body);
+          const linkedPath = this.extractSublistLink(body, file.path);
           if (!linkedPath || this.resolveLinkedPath(linkedPath, file.path) !== sublistPath) {
             return line;
           }
@@ -2782,14 +3246,18 @@ kanban-task-timer-sublist: true
     const display = controls.querySelector(`.${CONTROL_CLASS}__display`);
     const toggle = controls.querySelector(`.${CONTROL_CLASS}__toggle`);
 
-    display.textContent = `${overtime ? "+" : ""}${this.formatDuration(shownMs)}`;
+    const nextDisplay = `${overtime ? "+" : ""}${this.formatDuration(shownMs)}`;
+    if (display.textContent !== nextDisplay) display.textContent = nextDisplay;
     controls.classList.toggle("is-running", running);
     controls.classList.toggle("is-overtime", overtime);
     controls.classList.toggle("has-sublist", Boolean(sublistPath));
 
-    toggle.textContent = running ? "⏸" : "▶";
-    toggle.replaceChildren();
-    setIcon(toggle, running ? "pause" : "play");
+    const nextToggleIcon = running ? "pause" : "play";
+    if (toggle.dataset.iconName !== nextToggleIcon) {
+      toggle.replaceChildren();
+      setIcon(toggle, nextToggleIcon);
+      toggle.dataset.iconName = nextToggleIcon;
+    }
     toggle.setAttribute(
       "aria-label",
       running

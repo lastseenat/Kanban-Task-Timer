@@ -281,6 +281,14 @@
   width: 100%;
 }
 
+.kanban-task-timer-move-all-separator {
+  margin-block: 1rem;
+}
+
+.kanban-task-timer-move-all-other-board {
+  width: 100%;
+}
+
 .kanban-task-timer-lane-toggle.is-hidden {
   color: var(--text-muted);
   opacity: 0.75;
@@ -308,42 +316,6 @@
   font-family: var(--font-monospace);
   font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
-}
-
-.kanban-task-timer-delete {
-  align-items: center;
-  background: transparent !important;
-  border: 0 !important;
-  border-radius: 0;
-  box-shadow: none !important;
-  color: var(--text-muted) !important;
-  display: inline-flex;
-  font-size: 1.1rem;
-  font-weight: 500;
-  height: 1.5rem;
-  justify-content: center;
-  line-height: 1;
-  min-width: 1.5rem;
-  padding: 0;
-  align-self: flex-start;
-  margin-inline-start: 0.15rem;
-  margin-block: 0;
-  z-index: 3;
-  cursor: pointer !important;
-  pointer-events: auto !important;
-  position: relative;
-  transform: none;
-}
-
-.kanban-plugin__item-postfix-button-wrapper:has(.kanban-task-timer-delete) {
-  pointer-events: auto !important;
-  position: relative;
-  z-index: 20;
-}
-
-.kanban-task-timer-delete:hover {
-  background: transparent !important;
-  color: var(--text-error) !important;
 }
 
 .kanban-task-timer-estimate {
