@@ -1,1 +1,2 @@
-{"id":"kanban-task-timer","name":"Kanban Task Timer","version":"1.6.8","minAppVersion":"1.0.0","description":"Adds persistent countdowns, clickable linked sublists, aggregate timers, finish forecasts, checkpoints, and per-column visibility to Kanban cards.","author":"LiNkE","isDesktopOnly":false}
+{"id":"kanban-task-timer","name":"Kanban Task Timer","version":"1.6.9","minAppVersion":"1.0.0","description":"Adds persistent countdowns, clickable linked sublists, aggregate timers, finish forecasts, checkpoints, and per-column visibility to Kanban cards.","author":"LiNkE","isDesktopOnly":false}
+
