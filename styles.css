@@ -203,12 +203,20 @@
     gap: 0.2rem;
     flex-wrap: nowrap !important;
     max-width: 100%;
-    overflow-x: scroll !important;
-    padding-bottom: 0.15rem;
+    /* "scroll" affichait en permanence une barre horizontale sous chaque
+       minuteur. Elle se recalculait avec la largeur des colonnes et
+       scintillait. Le défilement reste disponible au besoin, sans barre. */
+    overflow-x: auto !important;
+    overflow-y: hidden;
+    padding-bottom: 0;
     padding-left: 1.7rem;
     position: relative;
-    scrollbar-width: thin;
+    scrollbar-width: none;
     width: 100%;
+  }
+
+  .kanban-task-timer::-webkit-scrollbar {
+    display: none;
   }
 
   .kanban-task-timer button {
@@ -557,3 +565,4 @@
     font-size: 0.78rem;
   }
 }
+
