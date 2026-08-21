@@ -107,18 +107,16 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     );
 
     this.observer = new MutationObserver((mutations) => {
-      // Ignore DOM churn produced by this plugin itself. The timer display and
-      // its SVG icons update frequently; re-rendering the whole board for
-      // those mutations causes a continuous layout/reflow loop and makes the
-      // Kanban scrollbar flicker.
-      if (mutations.some((mutation) => !this.isPluginRenderedMutation(mutation))) {
+      // Only Kanban DOM changes need a render. Watching every child mutation
+      // in document.body also catches navigation/sidebar updates; rendering
+      // the board in response to those updates makes its scrollbars flicker.
+      if (mutations.some((mutation) => this.isRelevantKanbanMutation(mutation))) {
         this.queueRender();
       }
     });
     this.observer.observe(document.body, { childList: true, subtree: true });
     this.register(() => this.observer.disconnect());
 
-    this.registerEvent(this.app.workspace.on("layout-change", () => this.queueRender()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.queueRender()));
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
@@ -138,7 +136,7 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     this.registerInterval(
       window.setInterval(() => {
         this.updateVisibleTimers();
-      }, 250)
+      }, 1000)
     );
 
     this.register(() => {
@@ -191,24 +189,21 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
       .forEach((element) => element.classList.remove(LANE_HIDDEN_CLASS));
   }
 
-  isPluginRenderedMutation(mutation) {
-    const target =
-      mutation.target?.nodeType === Node.ELEMENT_NODE
-        ? mutation.target
-        : mutation.target?.parentElement;
-    if (target?.closest(PLUGIN_RENDERED_SELECTOR)) return true;
-
+  isRelevantKanbanMutation(mutation) {
     if (mutation.type !== "childList") return false;
     const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
-    if (changedNodes.length === 0) return true;
+    if (changedNodes.length === 0) return false;
 
-    return changedNodes.every((node) => {
-      if (node.nodeType !== Node.ELEMENT_NODE) {
-        return Boolean(node.parentElement?.closest(PLUGIN_RENDERED_SELECTOR));
-      }
-      return (
-        node.matches(PLUGIN_RENDERED_SELECTOR) ||
-        Boolean(node.closest(PLUGIN_RENDERED_SELECTOR))
+    // A Kanban card can mutate while its native scroll containers are being
+    // laid out. Re-rendering the whole board in response creates a feedback
+    // loop that makes the scrollbar flicker. Card edits are already covered
+    // by the vault "modify" event; the DOM observer is only needed when a
+    // complete Kanban view is attached or replaced.
+    return changedNodes.some((node) => {
+      const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+      return Boolean(
+        element?.matches(BOARD_ROOT_SELECTOR) ||
+        element?.querySelector?.(BOARD_ROOT_SELECTOR)
       );
     });
   }
@@ -1364,8 +1359,12 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     // The daily board can be renamed. Keep the sleep planner on every main
     // Kanban board, but never display it on linked sublists.
     const isSleepPlannerVisible = !this.isSublistBoard(boardPath);
-    if (sleepPlanner) sleepPlanner.hidden = !isSleepPlannerVisible;
-    if (bedtimeMetric) bedtimeMetric.hidden = !isSleepPlannerVisible;
+    if (sleepPlanner && sleepPlanner.hidden === isSleepPlannerVisible) {
+      sleepPlanner.hidden = !isSleepPlannerVisible;
+    }
+    if (bedtimeMetric && bedtimeMetric.hidden === isSleepPlannerVisible) {
+      bedtimeMetric.hidden = !isSleepPlannerVisible;
+    }
     if (isSleepPlannerVisible) {
       this.updateSleepPlan(summary, boardPath);
       this.updateBedtimeStatus(
@@ -1388,10 +1387,12 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     const allDuration = this.formatCompactDuration(totals.todoMs + totals.laterMs);
 
     if (todoItem) {
-      todoItem.title = `Durée restante dans À faire : ${todoDuration}`;
+      const title = `Durée restante dans À faire : ${todoDuration}`;
+      if (todoItem.title !== title) todoItem.title = title;
     }
     if (allItem) {
-      allItem.title = `Durée restante dans À faire et Plus tard : ${allDuration}`;
+      const title = `Durée restante dans À faire et Plus tard : ${allDuration}`;
+      if (allItem.title !== title) allItem.title = title;
     }
   }
 
@@ -1445,26 +1446,31 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
       }
     }
 
-    warningElement.hidden = forcedTasks.length === 0;
+    const warningHidden = forcedTasks.length === 0;
+    if (warningElement.hidden !== warningHidden) warningElement.hidden = warningHidden;
     warningElement.classList.toggle("is-late", lateTasks.length > 0);
-    if (warningIcon) warningIcon.hidden = lateTasks.length === 0;
-    warningElement.title = lateTasks.length
+    const iconHidden = lateTasks.length === 0;
+    if (warningIcon && warningIcon.hidden !== iconHidden) warningIcon.hidden = iconHidden;
+    const warningTitle = lateTasks.length
       ? `Horaire impose depasse : ${lateTasks.map((task) => task.title).join(", ")}`
       : "";
+    if (warningElement.title !== warningTitle) warningElement.title = warningTitle;
     if (warningTime) {
+      let warningText;
       if (!forcedTasks.length) {
-        warningTime.textContent = "";
+        warningText = "";
       } else {
         const currentDate = new Date(now);
         const currentMinutes =
           currentDate.getHours() * 60 + currentDate.getMinutes();
         const targetTask = lateTasks[0] || forcedTasks[0];
         const minutesRemaining = targetTask.forcedMinutes - currentMinutes;
-        warningTime.textContent =
+        warningText =
           minutesRemaining >= 0
             ? `${minutesRemaining} min`
             : `${Math.abs(minutesRemaining)} min de retard`;
       }
+      if (warningTime.textContent !== warningText) warningTime.textContent = warningText;
     }
   }
 
@@ -1577,15 +1583,16 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     const allItem = summary.querySelector(`.${SUMMARY_CLASS}__item--all`);
     if (!metric) return;
 
-    metric.classList.remove("is-safe", "is-warning", "is-overdue");
-    metric.removeAttribute("title");
-    todoItem?.classList.remove("is-after-bedtime", "is-before-bedtime");
-    allItem?.classList.remove("is-after-bedtime", "is-before-bedtime");
-
     const plan = this.getSleepPlan(boardPath);
     const durationMinutes = this.parseSleepDuration(plan.duration);
     const wakeMatch = String(plan.wake || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
-    if (durationMinutes === null || !wakeMatch) return;
+    if (durationMinutes === null || !wakeMatch) {
+      metric.classList.remove("is-safe", "is-warning", "is-overdue");
+      if (metric.hasAttribute("title")) metric.removeAttribute("title");
+      todoItem?.classList.remove("is-after-bedtime", "is-before-bedtime");
+      allItem?.classList.remove("is-after-bedtime", "is-before-bedtime");
+      return;
+    }
 
     const wakeMinutes = Number(wakeMatch[1]) * 60 + Number(wakeMatch[2]);
     const bedtimeMinutes = (wakeMinutes - durationMinutes + 1440 * 2) % 1440;
@@ -1610,16 +1617,17 @@ module.exports = class KanbanTaskTimerPlugin extends Plugin {
     allItem?.classList.toggle("is-after-bedtime", allLate);
     allItem?.classList.toggle("is-before-bedtime", !allLate);
 
-    if (todoLate && allLate) {
-      metric.classList.add("is-overdue");
-      metric.title = "Les deux fins prévues dépassent l’heure de coucher";
-    } else if (allLate) {
-      metric.classList.add("is-warning");
-      metric.title = "Fin avec Plus tard dépasse l’heure de coucher";
-    } else {
-      metric.classList.add("is-safe");
-      metric.title = "Les deux fins prévues précèdent l’heure de coucher";
-    }
+    const statusClass = todoLate && allLate ? "is-overdue" : allLate ? "is-warning" : "is-safe";
+    metric.classList.toggle("is-safe", statusClass === "is-safe");
+    metric.classList.toggle("is-warning", statusClass === "is-warning");
+    metric.classList.toggle("is-overdue", statusClass === "is-overdue");
+    const statusTitle =
+      statusClass === "is-overdue"
+        ? "Les deux fins prévues dépassent l’heure de coucher"
+        : statusClass === "is-warning"
+          ? "Fin avec Plus tard dépasse l’heure de coucher"
+          : "Les deux fins prévues précèdent l’heure de coucher";
+    if (metric.title !== statusTitle) metric.title = statusTitle;
   }
 
   isSublistBoard(boardPath) {
@@ -3333,3 +3341,4 @@ kanban-task-timer-sublist: true
     }, 300);
   }
 };
+
